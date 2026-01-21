@@ -1,0 +1,15 @@
+[run]
+source = .
+
+[report]
+# Affiche les lignes manquantes dans les logs (pratique pour debug)
+show_missing = True
+
+# LISTE D'EXCLUSIONS FORCÉES
+exclude_lines =
+    # Exclusion standard
+    pragma: no cover
+    
+    # Exclusion explicite de la fonction main
+    def main
+    if __name__ == .__main__.:

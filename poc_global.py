@@ -1,11 +1,11 @@
 import streamlit as st
-import psycopg2
-from psycopg2.extras import RealDictCursor
 import pandas as pd
 import plotly.express as px
 from datetime import date
 
-# --- CONFIGURATION DE LA PAGE ---
+# --- IMPORT DU MOTEUR SQL ---
+# C'est ici qu'on récupère la connexion et les fonctions du fichier backend.py
+from backend import * # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(
     page_title="Maison du Droit - Système Intégré", 
     page_icon="⚖️",
@@ -79,283 +79,14 @@ st.markdown(f"""
     </style>
     """, unsafe_allow_html=True)
 
-# --- PARAMÈTRES DE CONNEXION ---
-PG_HOST = "localhost"
-PG_PORT = 5437
-PG_DB = "db_maisondudroit"
-PG_USER = "pgis"
-PG_PASSWORD = "pgis"
-
-# --- INITIALISATION DE LA CONNEXION ---
-# Note: On garde la connexion globale pour qu'elle soit accessible aux fonctions.
-# Si init_connection échoue lors des tests (pas de DB), connection sera None ou st.stop() sera appelé.
-# Cependant, grâce au 'if __name__ == "__main__"', le code principal ne s'exécutera pas.
-@st.cache_resource
-def init_connection():
-    try:
-        conn = psycopg2.connect(
-            host=PG_HOST, port=PG_PORT, database=PG_DB,
-            user=PG_USER, password=PG_PASSWORD
-        )
-        conn.autocommit = False 
-        return conn
-    except Exception as e:
-        # En mode test unitaire, on ne veut pas forcément que ça stop brutalement si on mock la connexion
-        # Mais pour l'appli réelle, c'est nécessaire.
-        return None 
-
-connection = init_connection()
-
-# =================================================================
-#  FONCTIONS SQL CONFIGURATION (MISES À JOUR)
-# =================================================================
-
-def save_configuration(context, is_new_var, var_pos, var_lib, var_type, rub_id, comment, modalites):
-    """
-    Fonction universelle pour sauvegarder :
-    - context : 'ENTRETIEN', 'DEMANDE' ou 'SOLUTION'
-    - var_pos : Position de la variable (ID unique pour les modalités)
-    """
-    if connection is None: return False
-    cursor = connection.cursor()
-    try:
-        # 1. GESTION TABLE VARIABLE (Uniquement pour ENTRETIEN)
-        # Pour DEMANDE et SOLUTION, la variable est "virtuelle", on ne touche qu'aux modalités
-        if context == 'ENTRETIEN':
-            if not is_new_var:
-                cursor.execute("""
-                    UPDATE variable 
-                    SET lib=%s, type_v=%s, rubrique=%s, commentaire=%s 
-                    WHERE pos=%s AND tab='ENTRETIEN'
-                """, (var_lib, var_type, rub_id, comment, var_pos))
-            else:
-                cursor.execute("""
-                    INSERT INTO variable (tab, pos, lib, type_v, rubrique, commentaire) 
-                    VALUES ('ENTRETIEN', %s, %s, %s, %s, %s)
-                """, (var_pos, var_lib, var_type, rub_id, comment))
-
-        # 2. GESTION DES MODALITÉS (Pour TOUS les contextes)
-        if var_type == 'MOD':
-            # Suppression anciennes modalités pour ce contexte spécifique
-            cursor.execute("DELETE FROM modalite WHERE tab=%s AND pos=%s", (context, var_pos))
-            
-            # Insertion des nouvelles
-            if modalites:
-                values = []
-                for idx, txt in enumerate(modalites):
-                    code = txt[:15].upper().replace(" ", "_") # Code auto
-                    values.append((context, var_pos, idx+1, txt, code))
-                
-                cursor.executemany("""
-                    INSERT INTO modalite (tab, pos, pos_m, lib_m, code) 
-                    VALUES (%s, %s, %s, %s, %s)
-                """, values)
-
-        connection.commit()
-        st.cache_data.clear()
-        return True
-    except Exception as e:
-        connection.rollback()
-        st.error(f"Erreur Sauvegarde : {e}")
-        return False
-    finally:
-        cursor.close()
-
-
-# =================================================================
-#  FONCTIONS SQL (LECTURE & ECRITURE)
-# =================================================================
-
-@st.cache_data
-def get_questionnaire_structure():
-    if not connection: return {}
-    cursor = connection.cursor(cursor_factory=RealDictCursor)
-    structure = {}
-    try:
-        cursor.execute("SELECT pos, lib FROM rubrique ORDER BY pos")
-        rubriques = {row['pos']: row['lib'] for row in cursor.fetchall()}
-
-        cursor.execute("""
-            SELECT pos, lib, commentaire, type_v, rubrique
-            FROM variable
-            WHERE tab = %s AND type_v IN ('MOD','NUM','CHAINE')
-            ORDER BY rubrique, pos
-        """, ('ENTRETIEN',))
-        variables = cursor.fetchall()
-
-        for var in variables:
-            rubrique_lib = rubriques.get(var['rubrique'], "Autres Champs")
-            if rubrique_lib not in structure:
-                structure[rubrique_lib] = []
-
-            var_data = {
-                'pos': var['pos'], 'lib': var['lib'], 'type': var['type_v'],
-                'comment': var['commentaire'], 'options': {}
-            }
-            # Chargement des options (simplifié pour l'affichage)
-            if var['type_v'] == 'MOD':
-                cursor.execute("SELECT code, lib_m FROM modalite WHERE tab = %s AND pos = %s ORDER BY pos_m", ('ENTRETIEN', var['pos']))
-                var_data['options'] = {row['lib_m']: row['code'] for row in cursor.fetchall()}
-            elif var['type_v'] == 'NUM':
-                cursor.execute("SELECT val_min, val_max FROM plage WHERE tab = %s AND pos = %s", ('ENTRETIEN', var['pos']))
-                plage = cursor.fetchone()
-                if plage: var_data['options'] = {'min': plage['val_min'], 'max': plage['val_max']}
-            elif var['type_v'] == 'CHAINE':
-                cursor.execute("SELECT lib FROM valeurs_c WHERE tab = %s AND pos = %s ORDER BY pos_c", ('ENTRETIEN', var['pos']))
-                var_data['options'] = [row['lib'] for row in cursor.fetchall()]
-
-            structure[rubrique_lib].append(var_data)
-        return structure
-    finally:
-        cursor.close()
-
-@st.cache_data
-def get_demande_solution_modalites():
-    if not connection: return {}, {}
-    cursor = connection.cursor(cursor_factory=RealDictCursor)
-    try:
-        cursor.execute("SELECT code, lib_m FROM modalite WHERE tab = %s AND pos = 3 ORDER BY pos_m", ('DEMANDE',))
-        demande_modalites = {row['lib_m']: row['code'] for row in cursor.fetchall()}
-        cursor.execute("SELECT code, lib_m FROM modalite WHERE tab = %s AND pos = 3 ORDER BY pos_m", ('SOLUTION',))
-        solution_modalites = {row['lib_m']: row['code'] for row in cursor.fetchall()}
-        return demande_modalites, solution_modalites
-    finally:
-        cursor.close()
-
-# --- Fonctions d'insertion (Entretien) ---
-def insert_full_entretien(data):
-    if not connection: return None
-    cursor = connection.cursor()
-    try:
-        cursor.execute("""
-            INSERT INTO entretien (date_ent, mode, duree, sexe, age, vient_pr, sit_fam, enfant, modele_fam, profession, ress, origine, commune, partenaire)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING num
-        """, (date.today(), data.get('mode'), data.get('duree'), data.get('sexe'), data.get('age'), data.get('vient_pr'), data.get('sit_fam'), data.get('enfant'), data.get('modele_fam'), data.get('profession'), data.get('ress'), data.get('origine'), data.get('commune'), data.get('partenaire')))
-        new_num = cursor.fetchone()[0]
-        connection.commit()
-        return new_num
-    except Exception as e:
-        connection.rollback()
-        st.error(f"Erreur insertion : {e}")
-        return None
-    finally: cursor.close()
-
-def insert_demandes(num, codes):
-    if not codes or not connection: return
-    cursor = connection.cursor()
-    try:
-        cursor.executemany("INSERT INTO demande (num, pos, nature) VALUES (%s,%s,%s)", [(num, i+1, c) for i,c in enumerate(codes)])
-        connection.commit()
-    finally: cursor.close()
-
-def insert_solutions(num, codes):
-    if not codes or not connection: return
-    cursor = connection.cursor()
-    try:
-        cursor.executemany("INSERT INTO solution (num, pos, nature) VALUES (%s,%s,%s)", [(num, i+1, c) for i,c in enumerate(codes)])
-        connection.commit()
-    finally: cursor.close()
-
-# --- Fonctions pour la page CONFIGURATION ---
-def upsert_rubrique(old_pos, new_pos, lib):
-    if not connection: return False
-    cursor = connection.cursor()
-    try:
-        # On vérifie si la rubrique existe déjà à cette position (old_pos)
-        cursor.execute("SELECT 1 FROM rubrique WHERE pos = %s", (old_pos,))
-        exists = cursor.fetchone()
-        
-        if exists:
-            # Si elle existe, c'est une MISE À JOUR (UPDATE)
-            cursor.execute("UPDATE rubrique SET pos = %s, lib = %s WHERE pos = %s", (new_pos, lib, old_pos))
-        else:
-            # Sinon, c'est une CRÉATION (INSERT)
-            cursor.execute("INSERT INTO rubrique (pos, lib) VALUES (%s, %s)", (new_pos, lib))
-        
-        connection.commit()
-        st.cache_data.clear() # On vide le cache pour voir les changements
-        return True
-    except Exception as e:
-        connection.rollback()
-        st.error(f"Erreur SQL Rubrique : {e}")
-        return False
-    finally:
-        cursor.close()
-
-def add_variable_sql(libelle, type_v, rubrique_id, position, commentaire):
-    if not connection: return False
-    cursor = connection.cursor()
-    try:
-        # On fixe 'ENTRETIEN' comme table cible pour ce POC
-        cursor.execute("""
-            INSERT INTO variable (tab, pos, lib, type_v, rubrique, commentaire) 
-            VALUES ('ENTRETIEN', %s, %s, %s, %s, %s)
-        """, (position, libelle, type_v, rubrique_id, commentaire))
-        connection.commit()
-        st.cache_data.clear()
-        return True
-    except Exception as e:
-        connection.rollback()
-        st.error(f"Erreur SQL Variable : {e}")
-        return False
-
-@st.cache_data
-def get_data_for_reporting():
-    if not connection: return pd.DataFrame()
-    cursor = connection.cursor(cursor_factory=RealDictCursor)
-    try:
-        # 1. Récupération des données brutes
-        cursor.execute("SELECT * FROM entretien")
-        data = cursor.fetchall()
-        df = pd.DataFrame(data)
-
-        if df.empty:
-            return df
-
-        # 2. Récupération du Dictionnaire de traduction
-        cursor.execute("SELECT pos, lib FROM variable WHERE tab='ENTRETIEN'")
-        vars_map = {row['lib'].lower(): row['pos'] for row in cursor.fetchall()}
-        
-        cursor.execute("SELECT pos, code, lib_m FROM modalite WHERE tab='ENTRETIEN'")
-        modalites = cursor.fetchall()
-        
-        decodage_map = {}
-        for row in modalites:
-            pos = row['pos']
-            code = row['code']
-            lib = row['lib_m']
-            if pos not in decodage_map: decodage_map[pos] = {}
-            # On stocke le code en string pour être sûr que le mapping fonctionne
-            decodage_map[pos][str(code)] = lib
-
-        # 3. Application de la traduction
-        for col_name in df.columns:
-            if col_name in vars_map:
-                pos_var = vars_map[col_name]
-                
-                if pos_var in decodage_map:
-                    # CORRECTION ICI :
-                    # 1. On convertit la colonne en str pour le mapping
-                    # 2. Si pas de traduction trouvée (NaN), on remplit avec la valeur d'origine convertie en str
-                    df[col_name] = df[col_name].astype(str).map(decodage_map[pos_var]).fillna(df[col_name].astype(str))
-
-        return df
-
-    except Exception as e:
-        st.error(f"Erreur lors de la récupération des données : {e}")
-        return pd.DataFrame()
-    finally:
-        cursor.close()
-
-
 # =================================================================
 #  MAIN APPLICATION LOGIC
 # =================================================================
 
-# APRÈS (Copiez exactement ça) :
 def main():  # pragma: no cover
     
     # Vérification critique de la connexion AVANT de lancer l'interface
+    # La variable 'connection' vient de l'import backend
     if connection is None:
         st.error("❌ ERREUR CRITIQUE : Impossible de se connecter à la base de données PostgreSQL.")
         st.warning("Vérifiez que le serveur PostgreSQL est lancé et que les paramètres (HOST, PORT, USER) sont corrects.")
@@ -853,7 +584,5 @@ def main():  # pragma: no cover
 # =================================================================
 #  POINT D'ENTRÉE DU SCRIPT
 # =================================================================
-# C'est ce bloc magique qui permet à Pytest d'importer le fichier sans lancer l'interface.
-# APRÈS :
 if __name__ == "__main__":  # pragma: no cover
     main()
