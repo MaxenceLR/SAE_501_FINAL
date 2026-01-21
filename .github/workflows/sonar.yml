@@ -1,0 +1,33 @@
+name: SonarCloud Scan
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  sonarcloud:
+    name: SonarCloud Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. Récupération du code
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Indispensable pour l'analyse Sonar
+
+      # 2. Installation de Python (Optionnel mais recommandé pour éviter des warnings)
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      # 3. Lancement du Scan
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v4
+        env:
+          # Ces deux lignes sont obligatoires et ne doivent pas être modifiées
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
