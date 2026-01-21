@@ -3,18 +3,23 @@ import pandas as pd
 from unittest.mock import MagicMock, patch
 from datetime import date
 
-# --- CORRECTION DES IMPORTS ---
-# On utilise les noms EXACTS présents dans votre fichier poc_global.py
+# --- IMPORTS COMPLETS (ANCIENS + NOUVEAUX) ---
 from poc_global import (
     insert_demandes,
     insert_solutions,
     insert_full_entretien,
     get_data_for_reporting,
     save_configuration,
-    upsert_rubrique  # <--- C'est le nom correct (remplace upsert_rubrique)
+    upsert_rubrique,
+    # Nouveaux imports pour le coverage :
+    get_questionnaire_structure,
+    get_demande_solution_modalites,
+    add_variable_sql
 )
 
-# --- 1. TESTS DES INSERTIONS ---
+# ==========================================
+# 1. TESTS DES INSERTIONS (DÉJÀ EXISTANTS)
+# ==========================================
 
 @patch('poc_global.connection')
 def test_insert_demandes_success(mock_conn):
@@ -23,7 +28,6 @@ def test_insert_demandes_success(mock_conn):
 
     insert_demandes(10, [1, 2, 3])
 
-    # On vérifie que executemany a été appelé
     mock_cursor.executemany.assert_called_once()
     args, _ = mock_cursor.executemany.call_args
     query, params = args
@@ -66,7 +70,9 @@ def test_insert_full_entretien_success(mock_conn):
     mock_conn.commit.assert_called_once()
 
 
-# --- 2. TEST DU REPORTING ---
+# ==========================================
+# 2. TEST DU REPORTING (DÉJÀ EXISTANT)
+# ==========================================
 
 @patch('poc_global.connection')
 def test_get_data_for_reporting_decoding(mock_conn):
@@ -90,7 +96,9 @@ def test_get_data_for_reporting_decoding(mock_conn):
     assert df.iloc[0]["age"] == "18-25 ans"
 
 
-# --- 3. TESTS CONFIGURATION ---
+# ==========================================
+# 3. TESTS CONFIGURATION (DÉJÀ EXISTANTS)
+# ==========================================
 
 @patch('poc_global.connection')
 def test_upsert_rubrique(mock_conn):
@@ -100,11 +108,9 @@ def test_upsert_rubrique(mock_conn):
     mock_conn.cursor.return_value = mock_cursor
     
     # Appel de la nouvelle fonction (old_pos, new_pos, lib)
-    # On imagine qu'on crée une rubrique à la position 5
     result = upsert_rubrique(5, 5, "Nouvelle Rubrique")
 
     assert result is True
-    # Vérifie qu'une requête INSERT a bien été préparée
     args, _ = mock_cursor.execute.call_args
     assert "INSERT INTO rubrique" in args[0]
     mock_conn.commit.assert_called_once()
@@ -127,5 +133,15 @@ def test_save_configuration_entretien(mock_conn):
     )
 
     assert success is True
-    # Vérifie qu'il y a eu au moins une exécution SQL
     assert mock_cursor.execute.call_count >= 1
+
+
+# =========================================================
+# 4. NOUVEAUX TESTS (POUR AUGMENTER LE COVERAGE SONAR) !!!
+# =========================================================
+
+@patch('poc_global.connection')
+def test_get_questionnaire_structure(mock_conn):
+    """Teste la récupération de la structure du formulaire"""
+    mock_cursor = MagicMock()
+    mock_conn.cursor
