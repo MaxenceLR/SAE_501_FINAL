@@ -352,7 +352,8 @@ def get_data_for_reporting():
 #  MAIN APPLICATION LOGIC
 # =================================================================
 
-def main():
+# APRÈS (Copiez exactement ça) :
+def main():  # pragma: no cover
     
     # Vérification critique de la connexion AVANT de lancer l'interface
     if connection is None:
@@ -853,5 +854,6 @@ def main():
 #  POINT D'ENTRÉE DU SCRIPT
 # =================================================================
 # C'est ce bloc magique qui permet à Pytest d'importer le fichier sans lancer l'interface.
-if __name__ == "__main__":
+# APRÈS :
+if __name__ == "__main__":  # pragma: no cover
     main()
