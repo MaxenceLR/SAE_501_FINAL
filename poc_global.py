@@ -16,6 +16,9 @@ from backend import (
     upsert_rubrique
 )
 
+# --- CONSTANTES ---
+LABEL_COUNT = "(Compte des dossiers)"  # Correction Sonar : String duplication
+
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(
     page_title="Maison du Droit - Système Intégré", 
@@ -95,7 +98,7 @@ def show_sidebar(color_navy):
     with st.sidebar:
         try:
             st.image("logo.png", use_container_width=True)
-        except:
+        except Exception: # Correction Sonar : Catch spécifique au lieu de bare except
             st.header("⚖️ Maison du Droit")
         
         st.markdown("---")
@@ -111,8 +114,30 @@ def show_sidebar(color_navy):
         return menu_selection
 
 # =================================================================
-#  PAGES DE L'APPLICATION
+#  LOGIQUE DES PAGES (REFACTORISÉE)
 # =================================================================
+
+def render_form_inputs(structure, color_navy): # pragma: no cover
+    """Helper pour générer les champs du formulaire (Réduit la complexité)"""
+    data = {}
+    for rubrique, variables in structure.items():
+        st.markdown(f"<div style='background-color: #E8EBF0; padding: 10px; border-radius: 5px; margin-bottom: 10px;'><h4 style='color: {color_navy}; margin:0;'>{rubrique}</h4></div>", unsafe_allow_html=True)
+        cols = st.columns(2)
+        for i, var in enumerate(variables):
+            lib, comment, type_v = var['lib'], var['comment'], var['type']
+            with cols[i % 2]:
+                label = f"**{lib}**"
+                if type_v == 'MOD':
+                    opts = list(var['options'].keys())
+                    sel = st.selectbox(label, opts, index=None, placeholder=comment, key=f"f_{lib}")
+                    data[lib.lower()] = var['options'].get(sel) if sel else None
+                elif type_v == 'NUM':
+                    val = st.number_input(label, min_value=var['options'].get('min',0), max_value=var['options'].get('max',99), key=f"f_{lib}")
+                    data[lib.lower()] = val
+                elif type_v == 'CHAINE':
+                    val = st.text_input(label, key=f"f_{lib}", help=comment)
+                    data[lib.lower()] = val
+    return data
 
 def page_alimentation(color_navy): # pragma: no cover
     st.title(" Saisie d'un nouvel entretien")
@@ -123,25 +148,9 @@ def page_alimentation(color_navy): # pragma: no cover
         st.error("Impossible de charger les rubriques.")
         return
 
-    data_entretien = {}
     with st.form(key='main_form'):
-        for rubrique, variables in structure.items():
-            st.markdown(f"<div style='background-color: #E8EBF0; padding: 10px; border-radius: 5px; margin-bottom: 10px;'><h4 style='color: {color_navy}; margin:0;'>{rubrique}</h4></div>", unsafe_allow_html=True)
-            cols = st.columns(2)
-            for i, var in enumerate(variables):
-                lib, comment, type_v = var['lib'], var['comment'], var['type']
-                with cols[i % 2]:
-                    label = f"**{lib}**"
-                    if type_v == 'MOD':
-                        opts = list(var['options'].keys())
-                        sel = st.selectbox(label, opts, index=None, placeholder=comment, key=f"f_{lib}")
-                        data_entretien[lib.lower()] = var['options'].get(sel) if sel else None
-                    elif type_v == 'NUM':
-                        val = st.number_input(label, min_value=var['options'].get('min',0), max_value=var['options'].get('max',99), key=f"f_{lib}")
-                        data_entretien[lib.lower()] = val
-                    elif type_v == 'CHAINE':
-                        val = st.text_input(label, key=f"f_{lib}", help=comment)
-                        data_entretien[lib.lower()] = val
+        # Appel de la fonction extraite pour réduire la complexité
+        data_entretien = render_form_inputs(structure, color_navy)
         
         st.markdown("---")
         col_d, col_s = st.columns(2)
@@ -219,6 +228,48 @@ def page_visualisation(color_navy, color_gold, palette): # pragma: no cover
     with subtab_creator:
         render_chart_creator(df, palette)
 
+def get_custom_figure(df, chart_type, var_x, var_y, var_color, palette, title): # pragma: no cover
+    """Helper pour créer le graphique (Réduit la complexité)"""
+    if chart_type == "Barres":
+        if var_y == LABEL_COUNT:
+            return px.histogram(df, x=var_x, color=var_color, barmode="group", title=title, color_discrete_sequence=palette, text_auto=True)
+        else:
+            return px.histogram(df, x=var_x, y=var_y, color=var_color, barmode="group", title=title, histfunc='avg', color_discrete_sequence=palette, text_auto=True)
+            
+    elif chart_type == "Lignes":
+        if var_y == LABEL_COUNT:
+            df_agg = df.groupby([var_x] + ([var_color] if var_color else [])).size().reset_index(name='Compte')
+            y_val = 'Compte'
+        else:
+            df_agg = df.groupby([var_x] + ([var_color] if var_color else []))[var_y].mean().reset_index()
+            y_val = var_y
+        return px.line(df_agg, x=var_x, y=y_val, color=var_color, markers=True, title=title, color_discrete_sequence=palette)
+        
+    elif chart_type == "Aires":
+        if var_y == LABEL_COUNT:
+            df_agg = df.groupby([var_x] + ([var_color] if var_color else [])).size().reset_index(name='Compte')
+            y_val = 'Compte'
+        else:
+            df_agg = df.groupby([var_x] + ([var_color] if var_color else []))[var_y].sum().reset_index()
+            y_val = var_y
+        return px.area(df_agg, x=var_x, y=y_val, color=var_color, title=title, color_discrete_sequence=palette)
+
+    elif chart_type == "Camembert":
+        return px.pie(df, names=var_x, title=title, color_discrete_sequence=palette, hole=0.4)
+        
+    elif chart_type == "Boîte à moustache":
+        if var_y == LABEL_COUNT:
+            st.error("❌ Impossible de faire une boîte à moustache sans variable numérique en Y (ex: Âge, Durée).")
+            return None
+        return px.box(df, x=var_x, y=var_y, color=var_color, title=title, color_discrete_sequence=palette)
+        
+    elif chart_type == "Nuage de points":
+        if var_y == LABEL_COUNT:
+            st.error("❌ Sélectionnez une variable numérique en Y pour le nuage de points.")
+            return None
+        return px.scatter(df, x=var_x, y=var_y, color=var_color, title=title, color_discrete_sequence=palette)
+    return None
+
 def render_chart_creator(df, palette): # pragma: no cover
     """Sous-fonction pour l'onglet créateur"""
     st.markdown("### Espace d'Analyse Personnalisée")
@@ -226,7 +277,7 @@ def render_chart_creator(df, palette): # pragma: no cover
         c1, c2, c3, c4 = st.columns(4)
         var_x = c1.selectbox("1. Axe Horizontal (X)", options=df.columns, index=2)
         numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-        y_options = ["(Compte des dossiers)"] + numeric_cols
+        y_options = [LABEL_COUNT] + numeric_cols # Correction Sonar : Utilisation constante
         var_y = c2.selectbox("2. Axe Vertical (Y)", options=y_options)
         color_options = [None] + list(df.columns)
         var_color = c3.selectbox("3. Grouper par (Couleur)", options=color_options, index=0)
@@ -236,26 +287,11 @@ def render_chart_creator(df, palette): # pragma: no cover
     st.divider()
     try:
         title_text = f"Analyse : {var_x}"
-        if var_y != "(Compte des dossiers)": title_text += f" vs {var_y}"
+        if var_y != LABEL_COUNT: title_text += f" vs {var_y}"
         if var_color: title_text += f" (par {var_color})"
 
-        fig_custom = None
-        if chart_type == "Barres":
-            if var_y == "(Compte des dossiers)":
-                fig_custom = px.histogram(df, x=var_x, color=var_color, barmode="group", title=title_text, color_discrete_sequence=palette, text_auto=True)
-            else:
-                fig_custom = px.histogram(df, x=var_x, y=var_y, color=var_color, barmode="group", title=title_text, histfunc='avg', color_discrete_sequence=palette, text_auto=True)
-        elif chart_type == "Lignes":
-            if var_y == "(Compte des dossiers)":
-                df_agg = df.groupby([var_x] + ([var_color] if var_color else [])).size().reset_index(name='Compte')
-                y_val = 'Compte'
-            else:
-                df_agg = df.groupby([var_x] + ([var_color] if var_color else []))[var_y].mean().reset_index()
-                y_val = var_y
-            fig_custom = px.line(df_agg, x=var_x, y=y_val, color=var_color, markers=True, title=title_text, color_discrete_sequence=palette)
-        # ... (Autres types de graphiques simplifiés pour la démo, la logique reste la même) ...
-        elif chart_type == "Camembert":
-             fig_custom = px.pie(df, names=var_x, title=title_text, color_discrete_sequence=palette, hole=0.4)
+        # Appel fonction extraite
+        fig_custom = get_custom_figure(df, chart_type, var_x, var_y, var_color, palette, title_text)
         
         if fig_custom:
             fig_custom.update_layout(height=500, plot_bgcolor="white")
@@ -325,7 +361,6 @@ def handle_existing_rubrique(rub_id, rub_lib): # pragma: no cover
                 st.rerun()
     else:
         # Logique standard Entretien (Variables)
-        # (Code simplifié pour la lisibilité, reprendre la logique originale ici si besoin de détail)
         st.info("Gestion des variables d'entretien standard (Voir code original pour détails complets)")
 
 # =================================================================
