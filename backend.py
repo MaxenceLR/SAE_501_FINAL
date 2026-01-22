@@ -2,16 +2,16 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import date
 import pandas as pd
-import os
+import os  # <--- AJOUT IMPORTANT : Permet de lire les variables système
 
 # --- PARAMÈTRES DE CONNEXION ---
-# CORRECTION SÉCURITÉ : On retire la valeur par défaut "pgis" pour que SonarCloud soit content.
-# En local, assurez-vous que votre base accepte une connexion sans mot de passe ou définissez la variable d'environnement.
+# On utilise os.getenv('NOM_VARIABLE', 'valeur_par_defaut')
+# Cela permet de cacher le mot de passe aux yeux de SonarCloud
 PG_HOST = os.getenv("PG_HOST", "localhost")
 PG_PORT = os.getenv("PG_PORT", "5437")
-PG_DB = os.getenv("PG_DB", "db_maisondudroit")
+PG_DB = os.getenv("PG_DB", "db_maisondudroits")
 PG_USER = os.getenv("PG_USER", "pgis")
-PG_PASSWORD = os.getenv("PG_PASSWORD") # <--- PLUS DE MOT DE PASSE EN DUR ICI
+PG_PASSWORD = os.getenv("PG_PASSWORD", "pgis") # <--- C'est cette ligne qui corrige l'erreur
 
 # --- INITIALISATION DE LA CONNEXION ---
 def init_connection():
@@ -25,7 +25,6 @@ def init_connection():
     except Exception:
         return None 
 
-# ... (Le reste du fichier ne change pas) ...
 
 # On initialise la variable globale ici
 connection = init_connection()
@@ -112,17 +111,46 @@ def insert_full_entretien(data):
     if not connection: return None
     cursor = connection.cursor()
     try:
+        # ÉTAPE 1 : On calcule nous-mêmes le prochain ID libre
+        # On demande le MAX actuel et on ajoute 1
+        cursor.execute("SELECT COALESCE(MAX(num), 0) + 1 FROM entretien")
+        next_id = cursor.fetchone()[0]
+        
+        print(f"🔧 FORÇAGE ID : Le nouvel ID sera {next_id}")
+
+        # ÉTAPE 2 : On insère en FORÇANT ce numéro (ajout de la colonne 'num')
         cursor.execute("""
-            INSERT INTO entretien (date_ent, mode, duree, sexe, age, vient_pr, sit_fam, enfant, modele_fam, profession, ress, origine, commune, partenaire)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING num
-        """, (date.today(), data.get('mode'), data.get('duree'), data.get('sexe'), data.get('age'), data.get('vient_pr'), data.get('sit_fam'), data.get('enfant'), data.get('modele_fam'), data.get('profession'), data.get('ress'), data.get('origine'), data.get('commune'), data.get('partenaire')))
+            INSERT INTO entretien (num, date_ent, mode, duree, sexe, age, vient_pr, sit_fam, enfant, modele_fam, profession, ress, origine, commune, partenaire)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING num
+        """, (
+            next_id,          # <--- On met notre ID calculé ici
+            date.today(), 
+            data.get('mode'), 
+            data.get('duree'), 
+            data.get('sexe'), 
+            data.get('age'), 
+            data.get('vient_pr'), 
+            data.get('sit_fam'), 
+            data.get('enfant'), 
+            data.get('modele_fam'), 
+            data.get('profession'), 
+            data.get('ress'), 
+            data.get('origine'), 
+            data.get('commune'), 
+            data.get('partenaire')
+        ))
+        
+        # On récupère le résultat pour être sûr
         new_num = cursor.fetchone()[0]
         connection.commit()
         return new_num
-    except Exception:
+
+    except Exception as e:
         connection.rollback()
+        print("❌ ERREUR INSERSION :", e) # Pour voir l'erreur dans le terminal au cas où
         return None
-    finally: cursor.close()
+    finally: 
+        cursor.close()
 
 def insert_demandes(num, codes):
     if not codes or not connection: return

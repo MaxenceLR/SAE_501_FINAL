@@ -171,10 +171,20 @@ def page_alimentation(color_navy): # pragma: no cover
             else:
                 new_id = insert_full_entretien(data_entretien)
                 if new_id:
+                    # ✅ SUCCÈS
                     insert_demandes(new_id, [demande_opt[l] for l in sel_dem])
                     insert_solutions(new_id, [sol_opt[l] for l in sel_sol])
-                    st.success(f"Entretien N°{new_id} enregistré !")
+                    st.success(f"Entretien N°{new_id} enregistré avec succès ! 🎉")
                     st.balloons()
+                else:
+                    # ❌ ÉCHEC (Le voici le fameux else !)
+                    st.error("❌ Erreur d'enregistrement.")
+                    
+                    # Diagnostic pour ta vidéo
+                    if connection is None:
+                        st.warning("⚠️ DIAGNOSTIC : Connexion impossible. Vérifie que le mot de passe est bien dans backend.py")
+                    else:
+                        st.warning("⚠️ DIAGNOSTIC : Connexion OK mais l'insertion SQL a échoué. Vérifie les données saisies.")
 
 def page_visualisation(color_navy, color_gold, palette): # pragma: no cover
     st.title("Tableau de Bord Décisionnel")
@@ -372,7 +382,7 @@ def handle_existing_rubrique(rub_id, rub_lib): # pragma: no cover
 
 def main():  # pragma: no cover
     if connection is None:
-        st.error("❌ Erreur de connexion BDD.")
+        st.error("❌ Erreur de connexion BDD. Vérifiez backend.py")
         st.stop()
 
     col_navy, col_gold, palette = load_css()
