@@ -42,11 +42,12 @@ jobs:
       - name: Run Unit Tests
         run: pytest test_unitaire.py --cov=. --cov-report=xml
       
-      # 6. Installation et Scan via NPM (Méthode la plus stable pour éviter les erreurs wget)
+      # 6. Installation et Scan via NPM (SÉCURISÉ)
       - name: SonarCloud Scan
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          npm install -g sonarqube-scanner
+          # On ajoute --ignore-scripts pour empêcher l'exécution de scripts potentiellement dangereux
+          npm install -g sonarqube-scanner --ignore-scripts
           sonar-scanner -Dsonar.host.url=https://sonarcloud.io
