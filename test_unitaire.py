@@ -34,24 +34,25 @@ def test_get_questionnaire_structure(mock_conn):
     # Simulation des retours BDD
     # 1. Rubriques
     # 2. Variables
-    # 3. Modalités (si besoin)
+    # 3. CORRECTION ICI : Options pour la variable CHAINE (le fetchall qui manquait)
     mock_cursor.fetchall.side_effect = [
-        [{'pos': 1, 'lib': 'Rubrique Test'}], # Rubriques
-        [{'pos': 1, 'lib': 'Var 1', 'commentaire': 'Com', 'type_v': 'CHAINE', 'rubrique': 1}] # Variables
+        [{'pos': 1, 'lib': 'Rubrique Test'}], # Appel 1 : Rubriques
+        [{'pos': 1, 'lib': 'Var 1', 'commentaire': 'Com', 'type_v': 'CHAINE', 'rubrique': 1}], # Appel 2 : Variables
+        [{'lib': 'Option A'}, {'lib': 'Option B'}] # Appel 3 : Options de la liste déroulante
     ]
 
     structure = backend.get_questionnaire_structure()
     
     assert 'Rubrique Test' in structure
     assert len(structure['Rubrique Test']) == 1
-    assert structure['Rubrique Test'][0]['lib'] == 'Var 1'
+    # On vérifie que les options ont bien été chargées grâce au 3ème appel
+    assert len(structure['Rubrique Test'][0]['options']) == 2
 
 @patch('backend.connection')
 def test_insert_full_entretien_success(mock_conn):
-    """Test d'insertion d'un entretien (CORRIGÉ POUR LA NOUVELLE LOGIQUE)"""
+    """Test d'insertion d'un entretien (Logique ID calculé)"""
     mock_cursor = MagicMock()
     
-    # --- CORRECTION ICI ---
     # Le backend fait maintenant 2 appels 'fetchone' :
     # 1. Pour SELECT MAX(num) -> On simule qu'il trouve 98
     # 2. Pour le RETURNING num après l'insert -> On simule qu'il renvoie 99 (98+1)
