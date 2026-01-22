@@ -347,35 +347,162 @@ def page_configuration(): # pragma: no cover
         selected_rub_id = dict_rubriques[choix_rubrique]
         handle_existing_rubrique(selected_rub_id, choix_rubrique)
 
+
 def handle_existing_rubrique(rub_id, rub_lib): # pragma: no cover
-    """Gère l'affichage d'une rubrique existante"""
-    rub_lower = rub_lib.lower()
-    is_special = "demande" in rub_lower or "solution" in rub_lower or "réponse" in rub_lower
-    target_tab = 'DEMANDE' if "demande" in rub_lower else ('SOLUTION' if is_special else 'ENTRETIEN')
+    """
+    Version AVEC COMPTEUR ET CASES INDIVIDUELLES :
+    - On définit le nombre de choix via un compteur (+/-).
+    - On remplit des cases distinctes.
+    """
     
-    st.markdown(f"### Config : {rub_lib}")
+    # --- 1. DÉTECTION DU CAS SPÉCIAL ---
+    rub_lower = rub_lib.lower()
+    target_tab = "ENTRETIEN"
+    is_special = False
+    
+    if "demande" in rub_lower:
+        target_tab = "DEMANDE"
+        is_special = True
+    elif "solution" in rub_lower or "réponse" in rub_lower:
+        target_tab = "SOLUTION"
+        is_special = True
+
+    # =========================================================
+    #  CAS A : SPÉCIAL (DEMANDE / SOLUTION) -> Liste à cases
+    # =========================================================
     if is_special:
+        st.markdown(f"### ⚡ Liste des choix : {rub_lib}")
+        st.info("Utilisez le compteur pour ajouter (+) ou retirer (-) des lignes.")
+
         FIXED_POS = 3
         cursor = connection.cursor()
         cursor.execute("SELECT lib_m FROM modalite WHERE tab=%s AND pos=%s ORDER BY pos_m", (target_tab, FIXED_POS))
-        existing_mods = [m[0] for m in cursor.fetchall()]
+        current_mods = [m[0] for m in cursor.fetchall()]
         cursor.close()
         
-        with st.form("special_var_form"):
-            nb_choix = st.number_input("Nombre de choix", min_value=1, value=len(existing_mods) or 3)
-            final_mods = []
-            cols = st.columns(2)
-            for i in range(int(nb_choix)):
-                val = cols[i%2].text_input(f"Option {i+1}", value=existing_mods[i] if i < len(existing_mods) else "")
-                final_mods.append(val)
+        with st.form("special_list_form"):
+            # LE COMPTEUR
+            nb_choix = st.number_input("Nombre de choix", min_value=1, value=len(current_mods) + 1, step=1)
             
-            if st.form_submit_button("Enregistrer"):
-                save_configuration(target_tab, False, FIXED_POS, "Nature", "MOD", rub_id, "System", final_mods)
-                st.success("Saved!")
-                st.rerun()
-    else:
-        st.info("Gestion des variables d'entretien standard (Voir code original pour détails complets)")
+            final_modalites = []
+            cols = st.columns(2) # On affiche sur 2 colonnes pour faire joli
+            
+            # LA BOUCLE DE CRÉATION DES CASES
+            for i in range(int(nb_choix)):
+                # Si une valeur existe déjà, on la met, sinon vide
+                val_def = current_mods[i] if i < len(current_mods) else ""
+                val = cols[i % 2].text_input(f"Choix n°{i+1}", value=val_def, key=f"spec_{i}")
+                if val.strip(): # On ne garde que si rempli
+                    final_modalites.append(val.strip())
 
+            st.write("")
+            if st.form_submit_button("💾 Enregistrer la liste"):
+                if not final_modalites:
+                    st.error("La liste ne peut pas être vide.")
+                else:
+                    save_configuration(
+                        context=target_tab, 
+                        is_new_var=False, 
+                        var_pos=FIXED_POS, 
+                        var_lib="Nature", 
+                        var_type="MOD", 
+                        rub_id=rub_id, 
+                        comment="Liste gérée via Configuration", 
+                        modalites=final_modalites
+                    )
+                    st.success("✅ Liste mise à jour avec succès !")
+                    st.rerun()
+
+    # =========================================================
+    #  CAS B : STANDARD (VARIABLES D'ENTRETIEN)
+    # =========================================================
+    else:
+        st.markdown(f"### 🔧 Configuration de la rubrique : {rub_lib}")
+        
+        cursor = connection.cursor()
+        cursor.execute("""
+            SELECT pos, lib, type_v, commentaire 
+            FROM variable 
+            WHERE rubrique = %s AND tab = 'ENTRETIEN' 
+            ORDER BY pos
+        """, (rub_id,))
+        existing_vars = cursor.fetchall()
+        
+        dict_vars = {v[1]: v for v in existing_vars}
+        options_var = ["➕ Créer une nouvelle variable..."] + list(dict_vars.keys())
+        choix_var = st.selectbox("Choisir une variable :", options_var)
+
+        # Initialisation
+        current_mods_list = []
+        if choix_var == "➕ Créer une nouvelle variable...":
+            is_new = True
+            current_pos = (max([v[0] for v in existing_vars]) + 1) if existing_vars else 1
+            current_lib = ""
+            current_type = "CHAINE"
+            current_com = ""
+        else:
+            is_new = False
+            var_data = dict_vars[choix_var]
+            current_pos = var_data[0]
+            current_lib = var_data[1]
+            current_type = var_data[2]
+            current_com = var_data[3] or ""
+            
+            if current_type == 'MOD':
+                cursor.execute("SELECT lib_m FROM modalite WHERE tab='ENTRETIEN' AND pos=%s ORDER BY pos_m", (current_pos,))
+                current_mods_list = [m[0] for m in cursor.fetchall()]
+
+        cursor.close()
+
+        st.markdown("---")
+        with st.form("var_config_form"):
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                new_pos = st.number_input("Position", value=current_pos, step=1, min_value=1)
+                new_type = st.selectbox("Type", ["CHAINE", "NUM", "MOD", "DATE"], index=["CHAINE", "NUM", "MOD", "DATE"].index(current_type))
+            with col2:
+                new_lib = st.text_input("Nom (Libellé)", value=current_lib)
+                new_com = st.text_input("Commentaire", value=current_com)
+
+            # ZONE DYNAMIQUE POUR 'MOD'
+            final_modalites = []
+            if new_type == "MOD":
+                st.info("Définissez les options de la liste déroulante :")
+                # LE COMPTEUR
+                nb_opts = st.number_input("Nombre d'options", min_value=1, value=len(current_mods_list) + 1 if current_mods_list else 3, step=1)
+                
+                c_opt1, c_opt2 = st.columns(2)
+                for i in range(int(nb_opts)):
+                    val_def = current_mods_list[i] if i < len(current_mods_list) else ""
+                    # On alterne les colonnes pour gagner de la place
+                    col_to_use = c_opt1 if i % 2 == 0 else c_opt2
+                    val = col_to_use.text_input(f"Option {i+1}", value=val_def, key=f"std_opt_{i}")
+                    if val.strip():
+                        final_modalites.append(val.strip())
+
+            submitted = st.form_submit_button("Enregistrer")
+
+            if submitted:
+                if not new_lib:
+                    st.error("Nom obligatoire.")
+                elif new_type == "MOD" and not final_modalites:
+                    st.error("Ajoutez au moins une option valide.")
+                else:
+                    success = save_configuration(
+                        context='ENTRETIEN',
+                        is_new_var=is_new,
+                        var_pos=new_pos,
+                        var_lib=new_lib,
+                        var_type=new_type,
+                        rub_id=rub_id,
+                        comment=new_com,
+                        modalites=final_modalites
+                    )
+                    if success:
+                        st.success("✅ Enregistré !")
+                        st.rerun()
+                    else:
+                        st.error("❌ Erreur BDD.")
 # =================================================================
 #  POINT D'ENTRÉE PRINCIPAL (MAIN)
 # =================================================================
