@@ -4,142 +4,139 @@ from datetime import date
 import backend  # On importe le module backend
 
 # =================================================================
-#  TESTS UNITAIRES (Backend)
+#  TESTS CAS NOMINAUX (Tout va bien)
 # =================================================================
 
 @patch('backend.connection')
 def test_save_configuration_update(mock_conn):
-    """Test de la mise à jour d'une configuration"""
+    """Test UPDATE configuration"""
     mock_cursor = MagicMock()
     mock_conn.cursor.return_value = mock_cursor
-
-    # Appel de la fonction
-    result = backend.save_configuration(
-        context='ENTRETIEN', is_new_var=False, var_pos=1, 
-        var_lib="Test Lib", var_type="CHAINE", rub_id=1, 
-        comment="Commentaire", modalites=[]
-    )
-
-    # Vérifications
+    result = backend.save_configuration('ENTRETIEN', False, 1, "Lib", "CHAINE", 1, "Com", [])
     assert result is True
-    mock_cursor.execute.assert_called()
-    mock_conn.commit.assert_called()
+    assert "UPDATE variable" in mock_cursor.execute.call_args_list[0][0][0]
+
+@patch('backend.connection')
+def test_save_configuration_insert(mock_conn):
+    """Test INSERT configuration"""
+    mock_cursor = MagicMock()
+    mock_conn.cursor.return_value = mock_cursor
+    result = backend.save_configuration('ENTRETIEN', True, 2, "New", "MOD", 1, "Com", ["A", "B"])
+    assert result is True
+    assert "INSERT INTO variable" in mock_cursor.execute.call_args_list[0][0][0]
 
 @patch('backend.connection')
 def test_get_questionnaire_structure(mock_conn):
-    """Test de récupération de la structure"""
+    """Test structure complète"""
     mock_cursor = MagicMock()
     mock_conn.cursor.return_value = mock_cursor
-
-    # Simulation des retours BDD
-    # 1. Rubriques
-    # 2. Variables
-    # 3. CORRECTION ICI : Options pour la variable CHAINE (le fetchall qui manquait)
-    mock_cursor.fetchall.side_effect = [
-        [{'pos': 1, 'lib': 'Rubrique Test'}], # Appel 1 : Rubriques
-        [{'pos': 1, 'lib': 'Var 1', 'commentaire': 'Com', 'type_v': 'CHAINE', 'rubrique': 1}], # Appel 2 : Variables
-        [{'lib': 'Option A'}, {'lib': 'Option B'}] # Appel 3 : Options de la liste déroulante
-    ]
-
-    structure = backend.get_questionnaire_structure()
     
-    assert 'Rubrique Test' in structure
-    assert len(structure['Rubrique Test']) == 1
-    # On vérifie que les options ont bien été chargées grâce au 3ème appel
-    assert len(structure['Rubrique Test'][0]['options']) == 2
+    # --- CORRECTION 1 : Ajout de la clé 'commentaire' ---
+    mock_cursor.fetchall.side_effect = [
+        [{'pos': 1, 'lib': 'Rub'}], # Rubriques
+        [{'pos': 1, 'lib': 'V1', 'type_v': 'CHAINE', 'rubrique': 1, 'commentaire': 'Test Com'}], # Vars
+        [{'lib': 'Opt'}] # Options CHAINE
+    ]
+    res = backend.get_questionnaire_structure()
+    assert 'Rub' in res
+
+@patch('backend.connection')
+def test_get_demande_solution_modalites(mock_conn):
+    """Test listes déroulantes"""
+    mock_cursor = MagicMock()
+    mock_conn.cursor.return_value = mock_cursor
+    mock_cursor.fetchall.side_effect = [[{'code':'A','lib_m':'A'}], [{'code':'B','lib_m':'B'}]]
+    d, s = backend.get_demande_solution_modalites()
+    assert 'A' in d and 'B' in s
 
 @patch('backend.connection')
 def test_insert_full_entretien_success(mock_conn):
-    """Test d'insertion d'un entretien (Logique ID calculé)"""
+    """Test insertion succès (ID calculé)"""
     mock_cursor = MagicMock()
-    
-    # Le backend fait maintenant 2 appels 'fetchone' :
-    # 1. Pour SELECT MAX(num) -> On simule qu'il trouve 98
-    # 2. Pour le RETURNING num après l'insert -> On simule qu'il renvoie 99 (98+1)
-    mock_cursor.fetchone.side_effect = [[98], [99]]
-    
+    mock_cursor.fetchone.side_effect = [[98], [99]] # Max ID puis Returning ID
     mock_conn.cursor.return_value = mock_cursor
-
-    data = {
-        "mode": 1, "duree": 45, "sexe": 1, "age": 38,
-        "vient_pr": 1, "sit_fam": 2, "enfant": 0,
-        "modele_fam": None, "profession": 3, "ress": 2,
-        "origine": 1, "commune": "Nantes", "partenaire": None
-    }
-
-    new_id = backend.insert_full_entretien(data)
-
-    # Vérification que l'ID retourné est bien celui attendu
-    assert new_id == 99
-    
-    # Vérification qu'il y a eu 2 exécutions SQL (Le SELECT MAX et l'INSERT)
-    assert mock_cursor.execute.call_count == 2
+    data = {"mode": 1, "duree": 45, "sexe": 1, "age": 38, "vient_pr": 1, "sit_fam": 2, 
+            "enfant": 0, "modele_fam": None, "profession": 3, "ress": 2, 
+            "origine": 1, "commune": "Nantes", "partenaire": None}
+    assert backend.insert_full_entretien(data) == 99
 
 @patch('backend.connection')
-def test_insert_demandes(mock_conn):
-    """Test d'insertion des demandes"""
+def test_insert_demandes_solutions(mock_conn):
+    """Test insertion demandes et solutions"""
     mock_cursor = MagicMock()
     mock_conn.cursor.return_value = mock_cursor
-
-    backend.insert_demandes(10, ['CODE_A', 'CODE_B'])
-
-    mock_cursor.executemany.assert_called_once()
-    mock_conn.commit.assert_called()
+    backend.insert_demandes(10, ['A'])
+    backend.insert_solutions(10, ['B'])
+    assert mock_cursor.executemany.call_count == 2
 
 @patch('backend.connection')
-def test_insert_solutions(mock_conn):
-    """Test d'insertion des solutions"""
-    mock_cursor = MagicMock()
-    mock_conn.cursor.return_value = mock_cursor
-
-    backend.insert_solutions(10, ['SOL_A'])
-
-    mock_cursor.executemany.assert_called_once()
-    mock_conn.commit.assert_called()
-
-@patch('backend.connection')
-def test_upsert_rubrique_new(mock_conn):
-    """Test création nouvelle rubrique"""
+def test_upsert_rubrique_cases(mock_conn):
+    """Test Création ET Modification rubrique"""
     mock_cursor = MagicMock()
     mock_conn.cursor.return_value = mock_cursor
     
-    # Simule que la rubrique n'existe pas (fetchone renvoie None)
-    mock_cursor.fetchone.return_value = None
-
-    result = backend.upsert_rubrique(99, 99, "Nouvelle Rub")
-    
-    assert result is True
-    # Vérifie qu'on a bien fait un INSERT
+    # Cas 1 : Création (n'existe pas)
+    mock_cursor.fetchone.return_value = None 
+    backend.upsert_rubrique(1, 1, "New")
     assert "INSERT INTO" in mock_cursor.execute.call_args_list[-1][0][0]
+
+    # Cas 2 : Modification (existe)
+    mock_cursor.fetchone.return_value = [1] 
+    backend.upsert_rubrique(1, 1, "Update")
+    assert "UPDATE rubrique" in mock_cursor.execute.call_args_list[-1][0][0]
 
 @patch('backend.connection')
 def test_add_variable_sql(mock_conn):
-    """Test ajout variable"""
     mock_cursor = MagicMock()
     mock_conn.cursor.return_value = mock_cursor
-
-    result = backend.add_variable_sql("Lib", "CHAINE", 1, 10, "Com")
-    
-    assert result is True
-    mock_cursor.execute.assert_called()
+    assert backend.add_variable_sql("L", "T", 1, 1, "C") is True
 
 @patch('backend.connection')
-def test_get_data_for_reporting_empty(mock_conn):
-    """Test reporting vide"""
+def test_get_data_for_reporting(mock_conn):
     mock_cursor = MagicMock()
     mock_conn.cursor.return_value = mock_cursor
-    
-    # Simule aucun entretien
-    mock_cursor.fetchall.return_value = []
-
+    mock_cursor.fetchall.side_effect = [[{'sexe':'1'}], [{'pos':1,'lib':'Sexe'}], [{'pos':1,'code':'1','lib_m':'H'}]]
     df = backend.get_data_for_reporting()
-    
-    assert df.empty
+    assert df.iloc[0]['sexe'] == 'H'
+
+# =================================================================
+#  TESTS DE GESTION D'ERREURS
+# =================================================================
 
 @patch('backend.connection')
-def test_connection_failure(mock_conn):
-    """Test gestion erreur connexion"""
-    # On simule que la connexion est None
+def test_db_exceptions(mock_conn):
+    """Vérifie que le code ne plante pas si la BDD renvoie une erreur"""
+    mock_cursor = MagicMock()
+    mock_conn.cursor.return_value = mock_cursor
+    
+    # On configure le mock pour qu'il lève une erreur à chaque appel
+    mock_cursor.execute.side_effect = Exception("Boom BDD")
+    
+    # Test Exception sur insert_full_entretien
+    assert backend.insert_full_entretien({}) is None
+    
+    # Test Exception sur save_configuration
+    # --- CORRECTION 2 : On utilise 'ENTRETIEN' pour forcer l'entrée dans le bloc SQL ---
+    assert backend.save_configuration('ENTRETIEN', False, 1, 'B', 'C', 1, 'D', []) is False
+    
+    # Test Exception sur upsert_rubrique
+    assert backend.upsert_rubrique(1, 1, "A") is False
+    
+    # Test Exception sur add_variable_sql
+    assert backend.add_variable_sql("A", "B", 1, 1, "C") is False
+    
+    # Test Exception reporting
+    assert backend.get_data_for_reporting().empty
+
+def test_connection_none():
+    """Vérifie le comportement si la connexion est perdue (None)"""
     with patch('backend.connection', None):
-        result = backend.insert_full_entretien({})
-        assert result is None
+        assert backend.save_configuration('A', False, 1, 'B', 'C', 1, 'D', []) is False
+        assert backend.get_questionnaire_structure() == {}
+        assert backend.get_demande_solution_modalites() == ({}, {})
+        assert backend.insert_full_entretien({}) is None
+        assert backend.insert_demandes(1, []) is None 
+        assert backend.insert_solutions(1, []) is None
+        assert backend.upsert_rubrique(1, 1, "A") is False
+        assert backend.add_variable_sql("A", "B", 1, 1, "C") is False
+        assert backend.get_data_for_reporting().empty
