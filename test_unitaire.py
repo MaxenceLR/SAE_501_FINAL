@@ -1,10 +1,26 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from datetime import date
+import pandas as pd
 import backend  # On importe le module backend
 
 # =================================================================
-#  TESTS CAS NOMINAUX (Tout va bien)
+#  TESTS INITIALISATION & CONNEXION (Pour couvrir le haut du fichier)
+# =================================================================
+
+@patch('psycopg2.connect')
+def test_init_connection_fail(mock_connect):
+    """Test le bloc except de init_connection"""
+    # On simule une erreur de connexion (ex: mauvais mot de passe)
+    mock_connect.side_effect = Exception("Erreur de connexion")
+    
+    # On appelle manuellement la fonction pour vérifier qu'elle renvoie None
+    # et qu'elle passe bien dans le 'except'
+    conn = backend.init_connection()
+    assert conn is None
+
+# =================================================================
+#  TESTS CAS NOMINAUX
 # =================================================================
 
 @patch('backend.connection')
@@ -31,7 +47,6 @@ def test_get_questionnaire_structure(mock_conn):
     mock_cursor = MagicMock()
     mock_conn.cursor.return_value = mock_cursor
     
-    # --- CORRECTION 1 : Ajout de la clé 'commentaire' ---
     mock_cursor.fetchall.side_effect = [
         [{'pos': 1, 'lib': 'Rub'}], # Rubriques
         [{'pos': 1, 'lib': 'V1', 'type_v': 'CHAINE', 'rubrique': 1, 'commentaire': 'Test Com'}], # Vars
@@ -51,9 +66,9 @@ def test_get_demande_solution_modalites(mock_conn):
 
 @patch('backend.connection')
 def test_insert_full_entretien_success(mock_conn):
-    """Test insertion succès (ID calculé)"""
+    """Test insertion succès"""
     mock_cursor = MagicMock()
-    mock_cursor.fetchone.side_effect = [[98], [99]] # Max ID puis Returning ID
+    mock_cursor.fetchone.side_effect = [[98], [99]] 
     mock_conn.cursor.return_value = mock_cursor
     data = {"mode": 1, "duree": 45, "sexe": 1, "age": 38, "vient_pr": 1, "sit_fam": 2, 
             "enfant": 0, "modele_fam": None, "profession": 3, "ress": 2, 
@@ -75,12 +90,12 @@ def test_upsert_rubrique_cases(mock_conn):
     mock_cursor = MagicMock()
     mock_conn.cursor.return_value = mock_cursor
     
-    # Cas 1 : Création (n'existe pas)
+    # Cas 1 : Création
     mock_cursor.fetchone.return_value = None 
     backend.upsert_rubrique(1, 1, "New")
     assert "INSERT INTO" in mock_cursor.execute.call_args_list[-1][0][0]
 
-    # Cas 2 : Modification (existe)
+    # Cas 2 : Modification
     mock_cursor.fetchone.return_value = [1] 
     backend.upsert_rubrique(1, 1, "Update")
     assert "UPDATE rubrique" in mock_cursor.execute.call_args_list[-1][0][0]
@@ -92,12 +107,30 @@ def test_add_variable_sql(mock_conn):
     assert backend.add_variable_sql("L", "T", 1, 1, "C") is True
 
 @patch('backend.connection')
-def test_get_data_for_reporting(mock_conn):
+def test_get_data_for_reporting_complex(mock_conn):
+    """Test reporting avec colonnes mixtes (mappées et non mappées)"""
     mock_cursor = MagicMock()
     mock_conn.cursor.return_value = mock_cursor
-    mock_cursor.fetchall.side_effect = [[{'sexe':'1'}], [{'pos':1,'lib':'Sexe'}], [{'pos':1,'code':'1','lib_m':'H'}]]
+    
+    # Données : 'sexe' (à decoder), 'ville' (texte simple), 'inconnu' (pas dans les variables)
+    data = [{'sexe': '1', 'ville': 'Paris', 'inconnu': 'X'}]
+    
+    mock_cursor.fetchall.side_effect = [
+        data, # Retour du SELECT * FROM entretien
+        [{'pos': 10, 'lib': 'Sexe'}, {'pos': 20, 'lib': 'Ville'}], # Mapping Variables
+        [{'pos': 10, 'code': '1', 'lib_m': 'Homme'}] # Mapping Modalités (Seulement pour Sexe)
+    ]
+
     df = backend.get_data_for_reporting()
-    assert df.iloc[0]['sexe'] == 'H'
+    
+    # Vérifications
+    assert not df.empty
+    # 'sexe' doit être traduit de '1' à 'Homme'
+    assert df.iloc[0]['sexe'] == 'Homme'
+    # 'ville' est dans vars_map mais pas dans decodage_map -> doit rester 'Paris'
+    assert df.iloc[0]['ville'] == 'Paris'
+    # 'inconnu' n'est pas dans vars_map -> doit rester 'X'
+    assert df.iloc[0]['inconnu'] == 'X'
 
 # =================================================================
 #  TESTS DE GESTION D'ERREURS
@@ -109,23 +142,12 @@ def test_db_exceptions(mock_conn):
     mock_cursor = MagicMock()
     mock_conn.cursor.return_value = mock_cursor
     
-    # On configure le mock pour qu'il lève une erreur à chaque appel
     mock_cursor.execute.side_effect = Exception("Boom BDD")
     
-    # Test Exception sur insert_full_entretien
     assert backend.insert_full_entretien({}) is None
-    
-    # Test Exception sur save_configuration
-    # --- CORRECTION 2 : On utilise 'ENTRETIEN' pour forcer l'entrée dans le bloc SQL ---
     assert backend.save_configuration('ENTRETIEN', False, 1, 'B', 'C', 1, 'D', []) is False
-    
-    # Test Exception sur upsert_rubrique
     assert backend.upsert_rubrique(1, 1, "A") is False
-    
-    # Test Exception sur add_variable_sql
     assert backend.add_variable_sql("A", "B", 1, 1, "C") is False
-    
-    # Test Exception reporting
     assert backend.get_data_for_reporting().empty
 
 def test_connection_none():
