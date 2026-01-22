@@ -1,4 +1,7 @@
 import time
+import os
+import shutil
+import tempfileit
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -6,7 +9,6 @@ from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.firefox import GeckoDriverManager
-import os
 
 APP_URL = "http://localhost:8501/"
 TIMEOUT = 20
@@ -15,12 +17,13 @@ TIMEOUT = 20
 # INIT FIREFOX
 # ==========================
 options = webdriver.FirefoxOptions()
-#options.add_argument("--headless")  # mode sans affichage
+# options.add_argument("--headless")  # mode sans affichage
 options.add_argument("--width=1920")
 options.add_argument("--height=1080")
 
-profile_path = r"H:\Temp\FirefoxProfile"
-os.makedirs(profile_path, exist_ok=True)
+# --- CORRECTION SÉCURITÉ SONARCLOUD ---
+# Création d'un dossier temporaire sécurisé géré par le système
+profile_path = tempfile.mkdtemp(prefix="firefox_profile_")
 options.profile = profile_path
 
 driver = webdriver.Firefox(
@@ -106,9 +109,18 @@ try:
 
 except Exception as e:
     print("❌ Échec test formulaire :", e)
-    driver.save_screenshot("erreur_test.png")
-    print("📸 Screenshot enregistré : erreur_test.png")
+    try:
+        driver.save_screenshot("erreur_test.png")
+        print("📸 Screenshot enregistré : erreur_test.png")
+    except Exception:
+        pass
 
 finally:
     time.sleep(2)
     driver.quit()
+    # Nettoyage du dossier temporaire
+    try:
+        if os.path.exists(profile_path):
+            shutil.rmtree(profile_path)
+    except Exception:
+        pass

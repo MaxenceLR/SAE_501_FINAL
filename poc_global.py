@@ -17,7 +17,7 @@ from backend import (
 )
 
 # --- CONSTANTES ---
-LABEL_COUNT = "(Compte des dossiers)"  # Correction Sonar : String duplication
+LABEL_COUNT = "(Compte des dossiers)"
 
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(
@@ -98,7 +98,7 @@ def show_sidebar(color_navy):
     with st.sidebar:
         try:
             st.image("logo.png", use_container_width=True)
-        except Exception: # Correction Sonar : Catch spécifique au lieu de bare except
+        except Exception:
             st.header("⚖️ Maison du Droit")
         
         st.markdown("---")
@@ -108,7 +108,7 @@ def show_sidebar(color_navy):
             index=0
         )
         st.markdown("---")
-        st.markdown(f"<div style='text-align: center; color: grey; font-size: 0.8em;'>Developed by</div>", unsafe_allow_html=True)
+        st.markdown("<div style='text-align: center; color: grey; font-size: 0.8em;'>Developed by</div>", unsafe_allow_html=True)
         st.markdown(f"<h4 style='text-align: center; color: {color_navy}; margin:0;'> DYLAN | MAXENCE | JORDAN </h4>", unsafe_allow_html=True)
         st.markdown(f"<div style='text-align: center; margin-top: 10px;'>© {date.today().year} Maison du Droit</div>", unsafe_allow_html=True)
         return menu_selection
@@ -118,7 +118,7 @@ def show_sidebar(color_navy):
 # =================================================================
 
 def render_form_inputs(structure, color_navy): # pragma: no cover
-    """Helper pour générer les champs du formulaire (Réduit la complexité)"""
+    """Helper pour générer les champs du formulaire"""
     data = {}
     for rubrique, variables in structure.items():
         st.markdown(f"<div style='background-color: #E8EBF0; padding: 10px; border-radius: 5px; margin-bottom: 10px;'><h4 style='color: {color_navy}; margin:0;'>{rubrique}</h4></div>", unsafe_allow_html=True)
@@ -149,7 +149,6 @@ def page_alimentation(color_navy): # pragma: no cover
         return
 
     with st.form(key='main_form'):
-        # Appel de la fonction extraite pour réduire la complexité
         data_entretien = render_form_inputs(structure, color_navy)
         
         st.markdown("---")
@@ -228,45 +227,52 @@ def page_visualisation(color_navy, color_gold, palette): # pragma: no cover
     with subtab_creator:
         render_chart_creator(df, palette)
 
-def get_custom_figure(df, chart_type, var_x, var_y, var_color, palette, title): # pragma: no cover
-    """Helper pour créer le graphique (Réduit la complexité)"""
-    if chart_type == "Barres":
-        if var_y == LABEL_COUNT:
-            return px.histogram(df, x=var_x, color=var_color, barmode="group", title=title, color_discrete_sequence=palette, text_auto=True)
-        else:
-            return px.histogram(df, x=var_x, y=var_y, color=var_color, barmode="group", title=title, histfunc='avg', color_discrete_sequence=palette, text_auto=True)
-            
-    elif chart_type == "Lignes":
-        if var_y == LABEL_COUNT:
-            df_agg = df.groupby([var_x] + ([var_color] if var_color else [])).size().reset_index(name='Compte')
-            y_val = 'Compte'
-        else:
-            df_agg = df.groupby([var_x] + ([var_color] if var_color else []))[var_y].mean().reset_index()
-            y_val = var_y
-        return px.line(df_agg, x=var_x, y=y_val, color=var_color, markers=True, title=title, color_discrete_sequence=palette)
-        
-    elif chart_type == "Aires":
-        if var_y == LABEL_COUNT:
-            df_agg = df.groupby([var_x] + ([var_color] if var_color else [])).size().reset_index(name='Compte')
-            y_val = 'Compte'
-        else:
-            df_agg = df.groupby([var_x] + ([var_color] if var_color else []))[var_y].sum().reset_index()
-            y_val = var_y
-        return px.area(df_agg, x=var_x, y=y_val, color=var_color, title=title, color_discrete_sequence=palette)
+def _create_bar_chart(df, var_x, var_y, var_color, palette, title):
+    if var_y == LABEL_COUNT:
+        return px.histogram(df, x=var_x, color=var_color, barmode="group", title=title, color_discrete_sequence=palette, text_auto=True)
+    return px.histogram(df, x=var_x, y=var_y, color=var_color, barmode="group", title=title, histfunc='avg', color_discrete_sequence=palette, text_auto=True)
 
-    elif chart_type == "Camembert":
-        return px.pie(df, names=var_x, title=title, color_discrete_sequence=palette, hole=0.4)
-        
-    elif chart_type == "Boîte à moustache":
-        if var_y == LABEL_COUNT:
+def _create_line_chart(df, var_x, var_y, var_color, palette, title):
+    if var_y == LABEL_COUNT:
+        df_agg = df.groupby([var_x] + ([var_color] if var_color else [])).size().reset_index(name='Compte')
+        y_val = 'Compte'
+    else:
+        df_agg = df.groupby([var_x] + ([var_color] if var_color else []))[var_y].mean().reset_index()
+        y_val = var_y
+    return px.line(df_agg, x=var_x, y=y_val, color=var_color, markers=True, title=title, color_discrete_sequence=palette)
+
+def _create_area_chart(df, var_x, var_y, var_color, palette, title):
+    if var_y == LABEL_COUNT:
+        df_agg = df.groupby([var_x] + ([var_color] if var_color else [])).size().reset_index(name='Compte')
+        y_val = 'Compte'
+    else:
+        df_agg = df.groupby([var_x] + ([var_color] if var_color else []))[var_y].sum().reset_index()
+        y_val = var_y
+    return px.area(df_agg, x=var_x, y=y_val, color=var_color, title=title, color_discrete_sequence=palette)
+
+def get_custom_figure(df, chart_type, var_x, var_y, var_color, palette, title): # pragma: no cover
+    """Helper pour créer le graphique"""
+    if var_y == LABEL_COUNT:
+        if chart_type == "Boîte à moustache":
             st.error("❌ Impossible de faire une boîte à moustache sans variable numérique en Y (ex: Âge, Durée).")
             return None
-        return px.box(df, x=var_x, y=var_y, color=var_color, title=title, color_discrete_sequence=palette)
-        
-    elif chart_type == "Nuage de points":
-        if var_y == LABEL_COUNT:
+        if chart_type == "Nuage de points":
             st.error("❌ Sélectionnez une variable numérique en Y pour le nuage de points.")
             return None
+
+    if chart_type == "Barres":
+        return _create_bar_chart(df, var_x, var_y, var_color, palette, title)
+    if chart_type == "Lignes":
+        return _create_line_chart(df, var_x, var_y, var_color, palette, title)
+    if chart_type == "Aires":
+        return _create_area_chart(df, var_x, var_y, var_color, palette, title)
+    
+    # Cas simples restants
+    if chart_type == "Camembert":
+        return px.pie(df, names=var_x, title=title, color_discrete_sequence=palette, hole=0.4)
+    if chart_type == "Boîte à moustache":
+        return px.box(df, x=var_x, y=var_y, color=var_color, title=title, color_discrete_sequence=palette)
+    if chart_type == "Nuage de points":
         return px.scatter(df, x=var_x, y=var_y, color=var_color, title=title, color_discrete_sequence=palette)
     return None
 
@@ -277,7 +283,7 @@ def render_chart_creator(df, palette): # pragma: no cover
         c1, c2, c3, c4 = st.columns(4)
         var_x = c1.selectbox("1. Axe Horizontal (X)", options=df.columns, index=2)
         numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-        y_options = [LABEL_COUNT] + numeric_cols # Correction Sonar : Utilisation constante
+        y_options = [LABEL_COUNT] + numeric_cols
         var_y = c2.selectbox("2. Axe Vertical (Y)", options=y_options)
         color_options = [None] + list(df.columns)
         var_color = c3.selectbox("3. Grouper par (Couleur)", options=color_options, index=0)
@@ -290,7 +296,6 @@ def render_chart_creator(df, palette): # pragma: no cover
         if var_y != LABEL_COUNT: title_text += f" vs {var_y}"
         if var_color: title_text += f" (par {var_color})"
 
-        # Appel fonction extraite
         fig_custom = get_custom_figure(df, chart_type, var_x, var_y, var_color, palette, title_text)
         
         if fig_custom:
@@ -340,7 +345,6 @@ def handle_existing_rubrique(rub_id, rub_lib): # pragma: no cover
     
     st.markdown(f"### Config : {rub_lib}")
     if is_special:
-        # Logique simplifiée pour Demande/Solution
         FIXED_POS = 3
         cursor = connection.cursor()
         cursor.execute("SELECT lib_m FROM modalite WHERE tab=%s AND pos=%s ORDER BY pos_m", (target_tab, FIXED_POS))
@@ -360,7 +364,6 @@ def handle_existing_rubrique(rub_id, rub_lib): # pragma: no cover
                 st.success("Saved!")
                 st.rerun()
     else:
-        # Logique standard Entretien (Variables)
         st.info("Gestion des variables d'entretien standard (Voir code original pour détails complets)")
 
 # =================================================================
@@ -368,18 +371,13 @@ def handle_existing_rubrique(rub_id, rub_lib): # pragma: no cover
 # =================================================================
 
 def main():  # pragma: no cover
-    # 1. Vérification de la BDD
     if connection is None:
         st.error("❌ Erreur de connexion BDD.")
         st.stop()
 
-    # 2. Chargement du style
     col_navy, col_gold, palette = load_css()
-
-    # 3. Affichage Menu
     menu_selection = show_sidebar(col_navy)
 
-    # 4. Aiguillage vers les pages
     if menu_selection == "ALIMENTATION":
         page_alimentation(col_navy)
     elif menu_selection == "VISUALISATION":
