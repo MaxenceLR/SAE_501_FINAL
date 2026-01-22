@@ -2,16 +2,16 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import date
 import pandas as pd
-import os  # <--- AJOUT IMPORTANT : Permet de lire les variables système
+import os
 
 # --- PARAMÈTRES DE CONNEXION ---
-# On utilise os.getenv('NOM_VARIABLE', 'valeur_par_defaut')
-# Cela permet de cacher le mot de passe aux yeux de SonarCloud
+# CORRECTION SÉCURITÉ : On retire la valeur par défaut "pgis" pour que SonarCloud soit content.
+# En local, assurez-vous que votre base accepte une connexion sans mot de passe ou définissez la variable d'environnement.
 PG_HOST = os.getenv("PG_HOST", "localhost")
 PG_PORT = os.getenv("PG_PORT", "5437")
 PG_DB = os.getenv("PG_DB", "db_maisondudroit")
 PG_USER = os.getenv("PG_USER", "pgis")
-PG_PASSWORD = os.getenv("PG_PASSWORD", "pgis") # <--- C'est cette ligne qui corrige l'erreur
+PG_PASSWORD = os.getenv("PG_PASSWORD") # <--- PLUS DE MOT DE PASSE EN DUR ICI
 
 # --- INITIALISATION DE LA CONNEXION ---
 def init_connection():
@@ -25,7 +25,7 @@ def init_connection():
     except Exception:
         return None 
 
-# ... Le reste du fichier ne change pas ...
+# ... (Le reste du fichier ne change pas) ...
 
 # On initialise la variable globale ici
 connection = init_connection()
