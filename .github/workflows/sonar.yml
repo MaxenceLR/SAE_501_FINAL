@@ -17,9 +17,9 @@ jobs:
       # 1. Récupération du code source
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Important pour l'analyse Sonar
+          fetch-depth: 0 
 
-      # 2. Installation de Java 17 (Requis par le Scanner Sonar moderne)
+      # 2. Installation de Java 17
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -32,26 +32,24 @@ jobs:
         with:
           python-version: '3.12'
 
-      # 4. Installation des dépendances du projet
+      # 4. Installation des dépendances
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pytest pytest-cov pandas plotly streamlit selenium webdriver-manager psycopg2-binary
           
-      # 5. Lancement des Tests Unitaires (Génération du rapport coverage.xml)
+      # 5. Lancement des Tests Unitaires
       - name: Run Unit Tests
         run: pytest test_unitaire.py --cov=. --cov-report=xml
       
-      # 6. Installation MANUELLE du Scanner Sonar CLI (Dernière version 6.2.1)
-      # Cette méthode contourne les bugs de version Java de l'action Docker officielle
+      # 6. Installation MANUELLE du Scanner Sonar CLI (Version corrigée)
       - name: Install SonarScanner
         run: |
-          wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-6.2.1.4610-linux.zip
-          unzip -q sonar-scanner-cli-6.2.1.4610-linux.zip
-          echo "$PWD/sonar-scanner-6.2.1.4610-linux/bin" >> $GITHUB_PATH
+          wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip
+          unzip -q sonar-scanner-cli-5.0.1.3006-linux.zip
+          echo "$PWD/sonar-scanner-5.0.1.3006-linux/bin" >> $GITHUB_PATH
 
       # 7. Lancement du Scan SonarCloud
-      # Le scanner va lire automatiquement votre fichier sonar-project.properties
       - name: Run SonarCloud Scan
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
